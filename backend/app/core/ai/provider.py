@@ -57,7 +57,8 @@ class RuleEngineProvider(LLMProvider):
                 "explained_amount": fee_sum,
                 "confidence": 0.98,
                 "evidence_records": [
-                    {"type": "FEE", "reference": fee_rec.get("fee_reference"), "amount": fee_sum, "fee_type": fee_rec.get("fee_type")}
+                    {"type": "FEE", "reference": f.get("fee_reference"), "amount": float(f.get("total_amount", 0.0)), "fee_type": f.get("fee_type")}
+                    for f in fees
                 ],
                 "calculation_steps": [
                     f"Payment captured: ₹{expected:.2f}",
@@ -80,7 +81,8 @@ class RuleEngineProvider(LLMProvider):
                 "explained_amount": refund_sum,
                 "confidence": 0.97,
                 "evidence_records": [
-                    {"type": "REFUND", "reference": ref_rec.get("refund_reference"), "amount": refund_sum, "reason": ref_rec.get("reason")}
+                    {"type": "REFUND", "reference": r.get("refund_reference"), "amount": float(r.get("amount", 0.0)), "reason": r.get("reason")}
+                    for r in refunds
                 ],
                 "calculation_steps": [
                     f"Payment captured: ₹{expected:.2f}",
@@ -101,8 +103,11 @@ class RuleEngineProvider(LLMProvider):
                 "explained_amount": fee_sum + refund_sum,
                 "confidence": 0.99,
                 "evidence_records": [
-                    {"type": "FEE", "reference": fees[0].get("fee_reference"), "amount": fee_sum, "fee_type": fees[0].get("fee_type")},
-                    {"type": "REFUND", "reference": refunds[0].get("refund_reference"), "amount": refund_sum, "reason": refunds[0].get("reason")}
+                    {"type": "FEE", "reference": f.get("fee_reference"), "amount": float(f.get("total_amount", 0.0)), "fee_type": f.get("fee_type")}
+                    for f in fees
+                ] + [
+                    {"type": "REFUND", "reference": r.get("refund_reference"), "amount": float(r.get("amount", 0.0)), "reason": r.get("reason")}
+                    for r in refunds
                 ],
                 "calculation_steps": [
                     f"Payment captured: ₹{expected:.2f}",
@@ -122,7 +127,7 @@ class RuleEngineProvider(LLMProvider):
                 "status": "RESOLVED",
                 "root_cause": "DELAYED_BATCH",
                 "financial_difference": 0.0,
-                "explained_amount": expected,
+                "explained_amount": float(s.get("net_amount", 0.0)),
                 "confidence": 0.94,
                 "evidence_records": [
                     {"type": "SETTLEMENT", "reference": s.get("settlement_reference"), "amount": float(s.get("net_amount", 0.0))}
@@ -141,11 +146,13 @@ class RuleEngineProvider(LLMProvider):
                 "status": "RESOLVED",
                 "root_cause": "DUPLICATE_ENTRY",
                 "financial_difference": discrepancy,
-                "explained_amount": float(settlements[1].get("net_amount", 0.0)),
+                "explained_amount": sum(float(s.get("net_amount", 0.0)) for s in settlements[1:]),
                 "confidence": 0.96,
+                # Cite only the surplus (duplicate) settlements: they are what
+                # over-settled the payment, so their sum equals the discrepancy.
                 "evidence_records": [
                     {"type": "SETTLEMENT", "reference": s.get("settlement_reference"), "amount": float(s.get("net_amount", 0.0))}
-                    for s in settlements
+                    for s in settlements[1:]
                 ],
                 "calculation_steps": [
                     f"Payment amount: ₹{expected:.2f}",

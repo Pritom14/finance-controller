@@ -12,6 +12,7 @@ from app.core.ai.tools import FinanceInvestigationTools
 from app.core.ai.provider import get_llm_provider
 from app.core.ai.prompts import INVESTIGATION_SYSTEM_PROMPT
 from app.config import settings
+from app.core.ai.verification import verify_investigation, apply_verification
 
 class AIInvestigator:
     @staticmethod
@@ -82,6 +83,11 @@ class AIInvestigator:
             tools_data=tools_payload
         )
 
+        # Deterministic verification: a RESOLVED claim must be backed by real,
+        # correctly-valued ledger records that add up to the discrepancy.
+        verification = verify_investigation(res, tools_payload, exception.difference)
+        res = apply_verification(res, verification)
+
         duration = time.perf_counter() - start_time
 
         # 3. Create or update Investigation record
@@ -133,7 +139,13 @@ class AIInvestigator:
             transaction_id=payment.transaction_id,
             event_type="AI_INVESTIGATION_COMPLETED",
             decision=ai_status,
-            evidence={"evidence_records": res.get("evidence_records", []), "steps": res.get("calculation_steps", [])},
+            evidence={"evidence_records": res.get("evidence_records", []), "steps": res.get("calculation_steps", []),
+                "verification": {
+                    "status": "SKIPPED" if verification.get("skipped") else ("PASSED" if verification["passed"] else "FAILED"),
+                    "failed_checks": verification["failed_checks"],
+                    "verified_amount": verification.get("verified_amount"),
+                },
+            },
             tools_called=tools_called,
             financial_calculation={
                 "explained_amount": res.get("explained_amount"),
